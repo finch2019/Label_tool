@@ -1447,6 +1447,45 @@ def api_tree(refresh: int = 0):
     return scan_tree(force=bool(refresh))
 
 
+_box_ann_cache = {"sig": None, "count": 0}
+
+
+def _count_box_annotated() -> int:
+    """框标注覆盖数（json_root 下 dataList 非空且对应图片存在于数据源）
+
+    带签名缓存：先只 stat 遍历（文件数 + 最新 mtime），签名未变则直接返回缓存，
+    避免每次打开总览页全量读取/解析镜像 json；写盘操作必然更新 mtime，缓存随之失效。
+    图片存在性用 iterdir 精确匹配（不用 glob 模式，文件名含 [ * ? 时不误匹配/漏计）。
+    """
+    if not STATE["json_root"]:
+        return 0
+    jr = Path(STATE["json_root"])
+    files, latest = [], 0.0
+    for jf in jr.rglob("*.json"):
+        try:
+            m = jf.stat().st_mtime
+        except OSError:
+            continue
+        files.append((jf, m))
+        if m > latest:
+            latest = m
+    sig = (str(jr), len(files), latest)
+    if _box_ann_cache["sig"] == sig:
+        return _box_ann_cache["count"]
+    count = 0
+    for jf, _ in files:
+        data = load_json_file(jf, default={})
+        if not (isinstance(data, dict) and data.get("dataList")):
+            continue
+        stem = jf.relative_to(jr).with_suffix("")
+        src_dir = STATE["source"] / stem.parent
+        if src_dir.is_dir() and any(
+                g.stem == stem.name and g.suffix.lower() in IMG_EXTS for g in src_dir.iterdir()):
+            count += 1
+    _box_ann_cache.update(sig=sig, count=count)
+    return count
+
+
 @app.get("/api/stats")
 def api_stats():
     err = require_loaded()
@@ -1485,6 +1524,9 @@ def api_stats():
     # 一级分类分布
     top_cats = [{"name": c["name"], "count": c["total"]} for c in tree["children"]]
 
+    # 框标注覆盖：json_root 下 dataList 非空、且对应图片存在于当前数据源（总览页进度用）
+    box_annotated = _count_box_annotated()
+
     return {
         "image_total": tree["total"],
         "dir_count": len(label_paths_with_images()),
@@ -1492,6 +1534,7 @@ def api_stats():
         "vlm": dist,
         "review": review_stats,
         "classified": classify_count,
+        "box_annotated": box_annotated,
         "recent": recent[:20],
     }
 
@@ -1701,7 +1744,7 @@ def api_boxes(image: str):
 
 class BoxShape(BaseModel):
     label: str
-    shapeType: str = "rectangle"   # rectangle / point / line
+    shapeType: Optional[str] = None   # rectangle / point / line；缺省时按坐标形态推断（旧客户端兼容）
     coordinates: List[Any]    # 框 [x1,y1,x2,y2]（一维；兼容旧客户端嵌套 [[x1,y1],[x2,y2]]）；点 [x,y]；线 [x1,y1,x2,y2]
 
 
@@ -1751,10 +1794,11 @@ def api_boxes_save(req: BoxSaveRequest, request: Request):
         data_list = []
         for i, s in enumerate(req.shapes, 1):
             raw = s.coordinates
-            # 点标注：显式 point 或长度 2 的纯标量 [x, y]（长度 2 的嵌套是旧客户端框）
-            if (s.shapeType == "point" and isinstance(raw, (list, tuple)) and len(raw) == 2) \
-                    or (isinstance(raw, (list, tuple)) and len(raw) == 2
-                        and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in raw)):
+            st = (s.shapeType or "").strip().lower()
+            is_pair = isinstance(raw, (list, tuple)) and len(raw) == 2
+            # 点标注：显式 point + [x, y]；或未声明 shapeType 的旧客户端发长度 2 纯标量（长度 2 嵌套是旧客户端框）
+            if (st == "point" and is_pair) or (not st and is_pair
+                    and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in raw)):
                 try:
                     data_list.append({
                         "id": i,
@@ -1768,7 +1812,7 @@ def api_boxes_save(req: BoxSaveRequest, request: Request):
                 except (TypeError, ValueError):
                     continue
             # 线标注：显式 line + 长度 4 的纯标量 [x1, y1, x2, y2]（端点原序，不 min/max）
-            if s.shapeType == "line" and isinstance(raw, (list, tuple)) and len(raw) == 4 \
+            if st == "line" and isinstance(raw, (list, tuple)) and len(raw) == 4 \
                     and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in raw):
                 try:
                     data_list.append({
@@ -2020,6 +2064,33 @@ def _collect_point_annotations():
     return out
 
 
+def _collect_line_annotations():
+    """收集全部线标注：[(rel, [(label, x1, y1, x2, y2)])]；框镜像中的 shapeType=line 条目（端点原序）"""
+    out = []
+    if not STATE["json_root"]:
+        return out
+    for root, _, fns in os.walk(STATE["json_root"]):
+        for fn in fns:
+            if not fn.lower().endswith(".json") or fn.endswith(".bak"):
+                continue
+            p = Path(root) / fn
+            rel = str(p.relative_to(STATE["json_root"])).replace("\\", "/")
+            data = load_json_file(p, default={})
+            segs = []
+            for s in data.get("dataList", []):
+                if s.get("shapeType") != "line":
+                    continue
+                c = s.get("coordinates", [])
+                if isinstance(c, (list, tuple)) and len(c) == 4 \
+                        and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in c):
+                    segs.append((s.get("label", ""),
+                                 int(round(float(c[0]))), int(round(float(c[1]))),
+                                 int(round(float(c[2]))), int(round(float(c[3])))))
+            if segs:
+                out.append((rel, segs))
+    return out
+
+
 def _new_export_dir(kind: str) -> Path:
     """每次导出生成独立时间戳子目录：export/<kind>_<时间>[/序号]/
 
@@ -2079,16 +2150,31 @@ def api_annotate_export(req: AnnotateConfigRequest):
         return {"error": "未检测到框标注目录，无法导出检测标注"}
     boxes = _collect_box_annotations()
     points = _collect_point_annotations()
+    segs = _collect_line_annotations()
+    lines_skipped = sum(len(s) for _, s in segs)   # 线暂无 YOLO/COCO 等价物，导出框时明示跳过数
     if req.format == "txt":
-        # txt（检测线）= 点标注导出：每行 图片路径<TAB>标签<TAB>x<TAB>y（框请用 YOLO/COCO）
-        if not points:
-            return {"error": "没有点标注可导出（框标注请选择 YOLO / COCO 格式）"}
+        # txt（检测线）= 点/线标注导出：点 每行 图片路径<TAB>标签<TAB>x<TAB>y；
+        # 线 每行 图片路径<TAB>标签<TAB>x1<TAB>y1<TAB>x2<TAB>y2（框请用 YOLO/COCO）
+        if not points and not segs:
+            return {"error": "没有点/线标注可导出（框标注请选择 YOLO / COCO 格式）"}
         out_dir = _new_export_dir("points")
-        f = out_dir / "points.txt"
-        lines = [f"{rel}\t{label}\t{x}\t{y}" for rel, pts in points for label, x, y in pts]
-        f.write_text("\n".join(lines), encoding="utf-8")
-        return {"ok": True, "count": len(lines), "file": str(f),
-                "labels": len({lb for _, pts in points for lb, _, _ in pts})}
+        n_rows, files = 0, []
+        if points:
+            plines = [f"{rel}\t{label}\t{x}\t{y}" for rel, pts in points for label, x, y in pts]
+            f_pts = out_dir / "points.txt"
+            f_pts.write_text("\n".join(plines), encoding="utf-8")
+            n_rows += len(plines)
+            files.append(f_pts)
+        if segs:
+            slines = [f"{rel}\t{label}\t{x1}\t{y1}\t{x2}\t{y2}"
+                      for rel, ss in segs for label, x1, y1, x2, y2 in ss]
+            f_segs = out_dir / "lines.txt"
+            f_segs.write_text("\n".join(slines), encoding="utf-8")
+            n_rows += len(slines)
+            files.append(f_segs)
+        return {"ok": True, "count": n_rows, "file": str(files[0] if len(files) == 1 else out_dir),
+                "labels": len({lb for _, pts in points for lb, _, _ in pts}
+                              | {lb for _, ss in segs for lb, *_ in ss})}
     if not boxes:
         return {"error": "没有框标注可导出"}
     label_set = sorted({s[0] for _, _, _, shapes in boxes for s in shapes})
@@ -2108,7 +2194,8 @@ def api_annotate_export(req: AnnotateConfigRequest):
             lab.write_text("\n".join(lines), encoding="utf-8")
         return {"ok": True, "count": len(boxes), "labels": len(label_set),
                 "file": str(yolo_dir),
-                "points_skipped": sum(len(p) for _, p in points)}
+                "points_skipped": sum(len(p) for _, p in points),
+                "lines_skipped": lines_skipped}
     if req.format == "coco":
         images, annotations = [], []
         aid = 1
@@ -2130,7 +2217,8 @@ def api_annotate_export(req: AnnotateConfigRequest):
         f = _new_export_dir("coco") / "annotations_coco.json"
         f.write_text(json.dumps(coco, ensure_ascii=False, indent=1), encoding="utf-8")
         return {"ok": True, "count": len(boxes), "labels": len(label_set), "file": str(f),
-                "points_skipped": sum(len(p) for _, p in points)}
+                "points_skipped": sum(len(p) for _, p in points),
+                "lines_skipped": lines_skipped}
     return {"error": f"不支持的检测导出格式：{req.format}"}
 
 

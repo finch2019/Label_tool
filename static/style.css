@@ -44,32 +44,41 @@ body {
 /* 用户昵称徽章（协作 P2）：顶栏深色按钮风格，长昵称省略 */
 .user-badge { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 10px; font-size: 12px; }
 
-/* ==================== 总览工作流引导卡 ==================== */
-.wf-card { margin-bottom: 16px; }
-.wf-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
-.wf-head h3 { margin: 0; }
-.wf-steps { display: flex; gap: 12px; flex-wrap: wrap; }
-.wf-step {
-  flex: 1; min-width: 210px; display: flex; align-items: center; gap: 12px;
-  padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
-  background: var(--panel); cursor: pointer; transition: border-color .15s, box-shadow .15s;
+/* ==================== 总览页：有什么 · 能做什么 ==================== */
+.dash-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.dash-panel-head h3 { margin: 0; }
+#dash-assets { display: flex; flex-wrap: wrap; gap: 8px; }
+.dash-asset {
+  background: #f1f5f9; border: 1px solid var(--border); border-radius: 12px;
+  padding: 4px 12px; font-size: 12.5px; color: var(--text);
 }
-.wf-step:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(37, 99, 235, .10); }
-.wf-idx {
-  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
-  background: var(--border); color: var(--muted);
-  display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px;
+.dash-asset b { color: var(--primary); }
+.dash-asset.ok { background: #f0fdf4; border-color: #bbf7d0; color: var(--green); }
+.dash-asset.ok b { color: var(--green); }
+.dash-asset.warn { background: #fffbeb; border-color: #fde68a; color: var(--amber); }
+.dash-probe { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 8px; }
+.dash-probe summary { cursor: pointer; color: var(--muted); font-size: 12.5px; user-select: none; }
+.dash-probe summary:hover { color: var(--primary); }
+/* 入口卡：点击直达对应功能 */
+.dash-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.dash-action {
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s;
 }
-.wf-info { flex: 1; min-width: 0; }
-.wf-name { font-weight: 600; font-size: 13px; color: var(--text); }
-.wf-desc { font-size: 12px; margin-top: 2px; }
-.wf-go { font-size: 12px; color: var(--muted); flex-shrink: 0; }
-.wf-step.active { border-color: var(--primary); background: rgba(37, 99, 235, .05); }
-.wf-step.active .wf-idx { background: var(--primary); color: #fff; }
-.wf-step.active .wf-go { color: var(--primary); font-weight: 600; }
-.wf-step.done .wf-idx { background: var(--green); color: #fff; }
-.wf-planned { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-.wf-chip { font-size: 12px; color: var(--muted); border: 1px dashed var(--border); border-radius: 999px; padding: 3px 10px; }
+.dash-action:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(37, 99, 235, .12); }
+.dash-action.primary { border-color: var(--primary); background: rgba(37, 99, 235, .04); }
+.da-icon { font-size: 24px; line-height: 1; flex-shrink: 0; }
+.da-body { flex: 1; min-width: 0; }
+.da-name { font-weight: 600; font-size: 14px; }
+.da-desc { font-size: 12px; margin-top: 2px; }
+.da-go { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+.dash-action:hover .da-go { color: var(--primary); font-weight: 600; }
+/* 详细统计折叠区 */
+.dash-details > summary { cursor: pointer; font-weight: 600; font-size: 13.5px; user-select: none; color: var(--muted); }
+.dash-details > summary:hover { color: var(--primary); }
+.dash-details[open] > summary { color: var(--text); margin-bottom: 12px; }
+.dash-details .cards { margin-top: 12px; }
 .proj-select:hover { border-color: var(--primary); }
 
 main { padding: 16px 20px; max-width: 1600px; margin: 0 auto; }
@@ -585,6 +594,8 @@ body.anno-full main { padding: 10px; max-width: none; height: 100vh; box-sizing:
 #ed-label-grid .lg-btn { padding: 6px 10px; font-size: 12.5px; }
 .lg-btn.lg-add { justify-content: center; border-style: dashed; color: var(--muted); }
 .lg-btn.lg-add:hover { color: var(--primary); }
+/* 弹层标签集的「＋ 新增标签」按钮（chips 下方，尺寸自适应内容） */
+#ed-label-add { width: fit-content; margin-top: 6px; padding: 6px 12px; font-size: 12.5px; }
 /* 画框/点标注 工具切换按钮 */
 .tool-btn { border-radius: 14px; }
 .tool-btn.active { border-color: var(--primary); background: #eff6ff; color: var(--primary); font-weight: 600; }

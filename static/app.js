@@ -231,55 +231,40 @@ function renderProbeReport(probe) {
 }
 
 // ==================== Dashboard ====================
-// 总览工作流引导卡：按项目状态（是否配置标签 / 是否有标注 / 是否有复核）高亮下一步，
-// 点击步骤直接跳转对应功能，避免「建完项目不知道去哪」的断档。
-async function renderWorkflowCard(st) {
-  const cfg = await api("/api/annotate/config");
-  const labels = cfg.labels || [];
-  const annotated = st.classified || 0;
-  const reviewed = (st.review || {}).reviewed || 0;
-  const steps = [
-    {
-      name: "配置标注体系", done: labels.length > 0,
-      desc: labels.length ? `已配置 ${labels.length} 个标签` : "设定任务类型与分类标签",
-      act: () => { nav("image"); openAnnoConfig("image"); },
-    },
-    {
-      name: "开始标注", done: annotated > 0,
-      desc: annotated ? `已标注 ${annotated} 张` : "支持 AI 批量预标注 + 人工修正",
-      act: () => { nav("image"); openAnnoConfig("image"); },
-    },
-    {
-      name: "人工复核", done: false,
-      desc: reviewed ? `已复核 ${reviewed} 张，可继续` : "核对 VLM 预标注与人工标注",
-      act: () => { nav("image"); setImgMode("review"); },
-    },
-  ];
-  const card = $("#wf-card");
-  card.style.display = "";
-  card.innerHTML = `
-    <div class="wf-head"><h3>工作流</h3><span class="muted">按步骤推进标注任务</span></div>
-    <div class="wf-steps">
-      ${steps.map((s, i) => {
-        const active = !s.done && steps.slice(0, i).every(x => x.done);
-        return `
-        <div class="wf-step ${s.done ? "done" : ""} ${active ? "active" : ""}" data-i="${i}" title="点击前往">
-          <div class="wf-idx">${s.done ? "✓" : i + 1}</div>
-          <div class="wf-info">
-            <div class="wf-name">${s.name}</div>
-            <div class="wf-desc muted">${s.desc}</div>
-          </div>
-          <span class="wf-go">${active ? "前往 →" : s.done ? "查看" : ""}</span>
-        </div>`;
-      }).join("")}
-    </div>
-    <div class="wf-planned">
-      <span class="wf-chip">✂ 长图切分 · 规划中</span>
-      <span class="wf-chip">👥 多人任务分配 · 规划中（协作 P3）</span>
-    </div>`;
-  card.querySelectorAll(".wf-step").forEach(el => {
-    el.onclick = () => steps[+el.dataset.i].act();
-  });
+// 资产摘要行：这个数据集里有什么（图片 / 已有标注 / 文本），一眼看清
+function renderDashAssets(st) {
+  const txts = (S.probe && S.probe.texts) || {};
+  const roles = (S.probe && S.probe.roles) || {};
+  const chips = [];
+  chips.push(`<span class="dash-asset ok">🖼 图片 <b>${fmtSize(st.image_total)}</b> 张 · ${st.dir_count} 个分类目录</span>`);
+  chips.push(st.box_annotated
+    ? `<span class="dash-asset ok">✏ 框标注 <b>${fmtSize(st.box_annotated)}</b> 张</span>`
+    : `<span class="dash-asset warn">✏ 尚无框标注 · 从下方「去标注」开始</span>`);
+  if (st.vlm.total) chips.push(`<span class="dash-asset ok">🤖 VLM 预标注 <b>${fmtSize(st.vlm.total)}</b> 张</span>`);
+  if (txts.count) chips.push(`<span class="dash-asset ok">📄 文本 <b>${fmtSize(txts.count)}</b> 行</span>`);
+  if ((roles.results_jsons || []).length) {
+    chips.push(`<span class="dash-asset ok">🧾 汇总标注 ${roles.results_jsons.length} 份（导入后已加载到图片）</span>`);
+  }
+  $("#dash-assets").innerHTML = chips.join("");
+}
+
+// 入口卡进度文案：能做什么 + 当前进展，点击直达对应功能
+function renderDashActions(st) {
+  const txts = (S.probe && S.probe.texts) || {};
+  $("#da-anno-progress").textContent = `已标注 ${fmtSize(st.box_annotated || 0)} / ${fmtSize(st.image_total)} 张`;
+  $("#da-vlm-desc").textContent = st.vlm.total
+    ? `已预标注 ${fmtSize(st.vlm.total)} 张 · 可继续或修正`
+    : "VLM 自动打标签，人工只需修正";
+  $("#da-review-desc").textContent = st.review.reviewed
+    ? `已复核 ${fmtSize(st.review.reviewed)} 张 · 可继续`
+    : "核对 AI 与人工标注结果";
+  const txtCard = $("#da-text");
+  if (txts.count) {
+    txtCard.style.display = "";
+    $("#da-text-desc").textContent = `${fmtSize(txts.count)} 行待标注`;
+  } else {
+    txtCard.style.display = "none";
+  }
 }
 
 async function loadDashboard() {
@@ -287,19 +272,26 @@ async function loadDashboard() {
   if (!S.probe) {
     $("#dash-empty").style.display = "";
     $("#dash-content").style.display = "none";
-    $("#wf-card").style.display = "none";
     $("#btn-data").style.display = "none";
     return;
   }
   $("#dash-empty").style.display = "none";
   $("#dash-content").style.display = "";
   $("#btn-data").style.display = "";
+  // 先刷新解析报告：资产摘要（文本行数 / 汇总标注）依赖 probe 结果
+  const pr = await api("/api/probe");
+  if (pr.probe) S.probe = pr.probe;
+  $("#probe-report").innerHTML = renderProbeReport(S.probe);
+  const proj = (S.projects || []).find(p => p.id === S.projectId);
+  $("#dash-src-name").textContent = proj ? `项目：${proj.name}` : "";
+
   const st = await api("/api/stats");
   if (st.error) {
-    $("#wf-card").style.display = "none";
-    $("#dash-cards").innerHTML = `<p class="muted">${esc(st.error)}</p>`;
+    $("#dash-assets").innerHTML = `<p class="muted">${esc(st.error)}</p>`;
     return;
   }
+  renderDashAssets(st);
+  renderDashActions(st);
   const rv = st.review;
   $("#dash-cards").innerHTML = `
     <div class="card"><div class="num">${fmtSize(st.image_total)}</div><div class="name">图片总数</div></div>
@@ -342,17 +334,6 @@ async function loadDashboard() {
         <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.image)}</span>
       </div>`).join("")
     : `<p class="muted">暂无复核记录</p>`;
-
-  renderWorkflowCard(st);   // 工作流引导卡（异步渲染，不阻塞下方面板）
-
-  if (!S.probe) {
-    const pr = await api("/api/probe");
-    if (pr.probe) S.probe = pr.probe;
-  }
-  if (S.probe) {
-    $("#probe-panel").style.display = "";
-    $("#probe-report").innerHTML = renderProbeReport(S.probe);
-  }
 }
 
 // ==================== 图片 ====================
@@ -1222,6 +1203,7 @@ class BoxEditor {
         const nl = prompt("修改标签（英文）:", cur);
         if (nl !== null && nl.trim()) {
           this.shapes[idx].label = nl.trim();
+          ensureEdLabel(nl.trim(), false);   // 新标签进标签集（会话内可见）
           this.emitChange();
           this.draw();
         }
@@ -1404,16 +1386,18 @@ class BoxEditor {
 const ED_LBL = { cfg: null, labels: [], imported: new Set(), expanded: false };
 
 async function loadEditorLabels(force) {
-  // 项目标注配置（image 线）里导入的标签优先；未配置过则兜底内置 EN_LABELS
+  // 标签集来源融合：标注配置 labels ∪ 数据导入 imported_labels；两者全空才兜底内置 EN_LABELS
   if (force || !ED_LBL.cfg) {
     const r = await api("/api/annotate/config");
     ED_LBL.cfg = (r && !r.error && r.config) || {};
   }
   const cfg = ED_LBL.cfg;
-  const saved = (cfg.line === "image" && Array.isArray(cfg.labels) && cfg.labels.length)
-    ? cfg.labels : null;
-  ED_LBL.labels = saved ? [...saved] : EN_LABELS.slice();
-  ED_LBL.imported = new Set(saved ? (cfg.imported_labels || []) : []);
+  const merged = [...new Set([
+    ...(Array.isArray(cfg.labels) ? cfg.labels : []),
+    ...(Array.isArray(cfg.imported_labels) ? cfg.imported_labels : []),
+  ])].map(l => (l || "").trim()).filter(Boolean);
+  ED_LBL.labels = merged.length ? merged : EN_LABELS.slice();
+  ED_LBL.imported = new Set(merged.length ? (cfg.imported_labels || []) : []);
   renderEdLabels();
 }
 
@@ -1445,12 +1429,57 @@ function renderEdLabels() {
   // 标签过多时收起（弹层为多列网格，阈值取 12）
   appendLabelToggle(grid, ED_LBL.labels.length, 12, ED_LBL.expanded,
     () => { ED_LBL.expanded = !ED_LBL.expanded; renderEdLabels(); });
-  // 框标签输入候选与默认值同步（保留仍在列表中的当前值）
+  // 框标签输入候选与默认值同步（仅输入为空时填默认，不覆盖用户输入的自定义标签）
   $("#en-labels").innerHTML = ED_LBL.labels.map(l => `<option value="${esc(l)}">`).join("");
   const inp = $("#ed-box-label");
-  if (!ED_LBL.labels.includes((inp.value || "").trim())) inp.value = ED_LBL.labels[0] || "";
+  if (!(inp.value || "").trim()) inp.value = ED_LBL.labels[0] || "";
   syncEdLabelActive();
 }
+
+// 新标签并入弹层标签集；persist=true 时静默写回标注配置（跨会话保留）
+async function ensureEdLabel(lbl, persist) {
+  lbl = (lbl || "").trim();
+  if (!lbl) return;
+  if (ED_LBL.labels.includes(lbl)) { syncEdLabelActive(); return; }
+  ED_LBL.labels.push(lbl);
+  renderEdLabels();
+  if (!persist) return;
+  const cfg = ED_LBL.cfg || {};
+  // 内置兜底标签不落盘：未配置过标签集时只持久化真实使用的标签，避免把整份 EN_LABELS 写进配置
+  const toSave = (Array.isArray(cfg.labels) && cfg.labels.length)
+    ? ED_LBL.labels : ED_LBL.labels.filter(l => !EN_LABELS.includes(l));
+  const r = await api("/api/annotate/config", {
+    method: "POST",
+    body: {
+      line: cfg.line || "image", task_type: cfg.task_type || "classify",
+      format: cfg.format || "txt", start: cfg.start || 1, group: cfg.group || 50,
+      labels: [...new Set(toSave)],
+    },
+  });
+  if (!r.error && r.config) ED_LBL.cfg = r.config;   // 同步最新配置（含服务端维护的 imported_labels）
+}
+
+// 当前图形状里的标签并入标签集（会话内可见，旧标注的标签不会在 chips 里找不到）
+function mergeEdShapeLabels(shapes) {
+  let added = false;
+  (shapes || []).forEach(s => {
+    const l = ((s && s.label) || "").trim();
+    if (l && !ED_LBL.labels.includes(l)) { ED_LBL.labels.push(l); added = true; }
+  });
+  if (added) renderEdLabels();
+}
+
+// 新增标签入口：输入框回车 / 失焦 / 「＋ 新增标签」按钮
+$("#ed-box-label").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  ensureEdLabel(e.target.value, true);   // 回车 = 入集并持久化
+});
+$("#ed-box-label").addEventListener("blur", (e) => ensureEdLabel(e.target.value, false));   // 失焦 = 仅入会话集
+$("#ed-label-add").addEventListener("click", () => ensureEdLabel($("#ed-box-label").value, true));
+// mousedown 阻止输入框先行失焦：否则 blur 先把标签入会话集，按钮 click 的持久化 POST 被 includes 短路
+[$("#ed-label-add"), $("#ed-label-grid")].forEach(el =>
+  el.addEventListener("mousedown", (e) => e.preventDefault()));
 
 async function openEditor(rel) {
   S.editQueue = [...$$("#img-grid .img-cell")].map(el => el.dataset.rel);
@@ -1479,14 +1508,23 @@ async function showEditor(rel) {
 
   const img = new Image();
   img.src = imgUrl(rel);
-  await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+  let loaded = true;
+  try {
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+  } catch { loaded = false; }
   if (S._edSeq !== seq) return;       // 已切到别的图，本请求作废
+  if (!loaded) {                      // 图片加载失败：提示并关闭弹层（rel 仍为空，保存守卫拒发）
+    toast(`图片加载失败：${rel}`, false);
+    modal.style.display = "none";
+    return;
+  }
   S.editor.setImage(img);
 
   const boxes = await api(`/api/boxes?image=${encodeURIComponent(rel)}`);
   if (S._edSeq !== seq) return;
   // 接口异常响应无 shapes：按空处理，避免 setShapes 抛 TypeError
   S.editor.setShapes(Array.isArray(boxes.shapes) ? boxes.shapes : []);
+  mergeEdShapeLabels(S.editor.shapes);   // 该图已有形状的标签并入标签集
   S.editor._original = JSON.parse(JSON.stringify(S.editor.shapes));
   S.editor.rel = rel;                 // 数据就绪后才认领新图（此前保存一律拒绝）
   renderBoxList(S.editor.shapes);
@@ -1496,7 +1534,7 @@ async function showEditor(rel) {
   const boxBy = boxes.updated_by || gridItem.boxes_by || "";
   $("#ed-by").textContent = boxBy ? `（标注：${boxBy}）` : "";
 
-  refreshCellBadge(rel);
+  refreshCellBadge(rel, S.editor.shapes.length > 0);   // 打开时同步网格「框」徽标
 }
 
 // 形状摘要：框 [宽×高] / 点 [点 x,y] / 线 [线 长]
@@ -2239,6 +2277,11 @@ function showImport() {
 
 $("#btn-data").onclick = () => showImport();
 $("#btn-dash-upload").onclick = () => showImport();
+// 总览入口卡：点击直达对应功能页
+$("#da-annotate").onclick = () => nav("image");
+$("#da-vlm").onclick = () => { nav("image"); toast("已进入图片页，左上角「🤖 批量预标注」可发起"); };
+$("#da-review").onclick = () => { nav("image"); setImgMode("review"); };
+$("#da-text").onclick = () => nav("text");
 $("#btn-dash-resume").onclick = resumeSession;
 $("#btn-import-cancel").onclick = () => ($("#import-screen").style.display = "none");
 
@@ -2994,8 +3037,15 @@ async function annoShow(i) {
       if (ANNO.editor) ANNO.editor.rel = "";   // 加载中：保存守卫拒发（防新图 it + 旧图 shapes 串图）
       const img = new Image();
       img.src = imgUrl(it.image);
-      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+      let loaded = true;
+      try {
+        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+      } catch { loaded = false; }
       if (ANNO.qi !== qiAtEntry) return;       // 过期渲染：丢弃，避免旧图覆盖新图编辑器
+      if (!loaded) {                           // 加载失败：提示并保持拒发守卫（rel 为空）
+        toast(`图片加载失败：${it.image}`, false);
+        return;
+      }
       ANNO.editor.setImage(img, 130);
       const boxes = await api(`/api/boxes?image=${encodeURIComponent(it.image)}`);
       if (ANNO.qi !== qiAtEntry) return;
@@ -3144,8 +3194,12 @@ $("#anno-export").addEventListener("click", async () => {
             start: ANNO.start, group: ANNO.group, labels: ANNO.labels },
   });
   if (r.ok) {
+    const skipped = [
+      r.points_skipped ? `${r.points_skipped} 个点` : "",
+      r.lines_skipped ? `${r.lines_skipped} 条线` : "",
+    ].filter(Boolean).join("、");
     toast(`已导出 ${r.count} 项 → ${r.file}` +
-      (r.points_skipped ? `（${r.points_skipped} 个点不适用该格式，点请用 txt 导出）` : ""));
+      (skipped ? `（${skipped}不适用该格式，点/线请用 txt 导出）` : ""));
   }
   else toast(r.error || "导出失败", false);
 });
