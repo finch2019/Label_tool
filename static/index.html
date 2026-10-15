@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>通用数据解析标注平台</title>
-<link rel="stylesheet" href="style.css?v=28">
+<link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
 
@@ -47,15 +47,14 @@
     </div>
     <!-- 已上传数据：聚焦「有什么 · 能做什么 · 导向标注」 -->
     <div id="dash-content" style="display:none">
-      <!-- ① 这个数据集有什么 -->
+      <!-- ① 这个数据集有什么（项目名 + 折叠解析报告） -->
       <div class="panel">
         <div class="dash-panel-head">
           <h3>数据集内容</h3>
           <span class="muted" id="dash-src-name"></span>
         </div>
-        <div id="dash-assets"></div>
         <details class="dash-probe">
-          <summary>查看完整解析报告（目录结构 / JSON 识别 / 角色推导）</summary>
+          <summary>查看完整解析报告（目录结构 / JSON 识别）</summary>
           <div id="probe-report"></div>
         </details>
       </div>
@@ -679,6 +678,6 @@
 
 <div id="toast" class="toast"></div>
 
-<script src="app.js?v=50"></script>
+<script src="app.js?v=52"></script>
 </body>
 </html>

@@ -1687,9 +1687,16 @@ def api_label_images(dir: str, offset: int = 0, limit: int = 60,
         }
 
     if unlabeled_only:
-        imgs = [f for f in imgs
-                if not ((ann.get(f.relative_to(STATE["source"]).as_posix(), {})
-                         or {}).get("classify") or {}).get("label_path")]
+        # 未标注 = 无框标注镜像（与网格「框」徽标同一判定）且无分类标注；
+        # 此前只看 classify.label_path，纯画框流程下过滤形同虚设
+        def _unlabeled(f):
+            rel = f.relative_to(STATE["source"]).as_posix()
+            jf = json_abs(rel)
+            if jf and jf.exists():
+                return False
+            a = ann.get(rel, {}) or {}
+            return not (a.get("classify") or {}).get("label_path")
+        imgs = [f for f in imgs if _unlabeled(f)]
     items = [img_item(f) for f in imgs[offset:offset + limit]]
     return {"items": items, "total": len(imgs), "offset": offset, "limit": limit}
 

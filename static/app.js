@@ -177,7 +177,7 @@ async function aiParseFormat(rel, btn) {
   setTimeout(() => location.reload(), 900);
 }
 
-function renderProbeReport(probe) {
+function renderProbeReport(probe, opts = {}) {
   if (!probe) return `<p class="muted">无解析结果</p>`;
   const imgs = probe.images || {}, txts = probe.texts || {};
   const roles = probe.roles || {};
@@ -187,11 +187,11 @@ function renderProbeReport(probe) {
   const cats = Array.isArray(catsRaw)
     ? catsRaw.filter(c => Array.isArray(c) && c.length >= 2)
     : Object.entries(catsRaw);
-  const catHtml = cats.length
-    ? cats.slice(0, 12).map(([k, v]) => `<span class="probe-chip">📁 ${esc(k)} <b>${fmtSize(v)}</b></span>`).join("")
-    : `<span class="muted">根目录平铺，无子目录分类</span>`;
+  const dirNote = cats.length
+    ? `${cats.length >= 20 ? "20+" : cats.length} 个分类目录`   // server 端 top_cats 截前 20
+    : "根目录平铺，无子目录分类";
   rows.push(`<div class="probe-row"><div class="probe-k">图片</div>
-    <div class="probe-v">共 <b>${fmtSize(imgs.count || 0)}</b> 张<div class="probe-chips">${catHtml}</div></div></div>`);
+    <div class="probe-v">共 <b>${fmtSize(imgs.count || 0)}</b> 张 · ${dirNote}</div></div>`);
 
   if (txts.count) {
     rows.push(`<div class="probe-row"><div class="probe-k">文本</div>
@@ -225,29 +225,14 @@ function renderProbeReport(probe) {
   if (!roles.checkpoint && !roles.json_root && !(roles.results_jsons || []).length && !(roles.unknown_anns || []).length) {
     roleHtml.push(`<span class="probe-chip warn">未发现标注文件 · 可让 AI 自动预标注</span>`);
   }
-  rows.push(`<div class="probe-row"><div class="probe-k">角色推导</div><div class="probe-v"><div class="probe-chips">${roleHtml.join("")}</div></div></div>`);
+  if (!opts.skipRoles) {
+    rows.push(`<div class="probe-row"><div class="probe-k">角色推导</div><div class="probe-v"><div class="probe-chips">${roleHtml.join("")}</div></div></div>`);
+  }
 
   return rows.join("");
 }
 
 // ==================== Dashboard ====================
-// 资产摘要行：这个数据集里有什么（图片 / 已有标注 / 文本），一眼看清
-function renderDashAssets(st) {
-  const txts = (S.probe && S.probe.texts) || {};
-  const roles = (S.probe && S.probe.roles) || {};
-  const chips = [];
-  chips.push(`<span class="dash-asset ok">🖼 图片 <b>${fmtSize(st.image_total)}</b> 张 · ${st.dir_count} 个分类目录</span>`);
-  chips.push(st.box_annotated
-    ? `<span class="dash-asset ok">✏ 框标注 <b>${fmtSize(st.box_annotated)}</b> 张</span>`
-    : `<span class="dash-asset warn">✏ 尚无框标注 · 从下方「去标注」开始</span>`);
-  if (st.vlm.total) chips.push(`<span class="dash-asset ok">🤖 VLM 预标注 <b>${fmtSize(st.vlm.total)}</b> 张</span>`);
-  if (txts.count) chips.push(`<span class="dash-asset ok">📄 文本 <b>${fmtSize(txts.count)}</b> 行</span>`);
-  if ((roles.results_jsons || []).length) {
-    chips.push(`<span class="dash-asset ok">🧾 汇总标注 ${roles.results_jsons.length} 份（导入后已加载到图片）</span>`);
-  }
-  $("#dash-assets").innerHTML = chips.join("");
-}
-
 // 入口卡进度文案：能做什么 + 当前进展，点击直达对应功能
 function renderDashActions(st) {
   const txts = (S.probe && S.probe.texts) || {};
@@ -278,19 +263,18 @@ async function loadDashboard() {
   $("#dash-empty").style.display = "none";
   $("#dash-content").style.display = "";
   $("#btn-data").style.display = "";
-  // 先刷新解析报告：资产摘要（文本行数 / 汇总标注）依赖 probe 结果
+  // 先刷新解析报告（总览略去角色推导，减少信息量）
   const pr = await api("/api/probe");
   if (pr.probe) S.probe = pr.probe;
-  $("#probe-report").innerHTML = renderProbeReport(S.probe);
+  $("#probe-report").innerHTML = renderProbeReport(S.probe, { skipRoles: true });
   const proj = (S.projects || []).find(p => p.id === S.projectId);
   $("#dash-src-name").textContent = proj ? `项目：${proj.name}` : "";
 
   const st = await api("/api/stats");
   if (st.error) {
-    $("#dash-assets").innerHTML = `<p class="muted">${esc(st.error)}</p>`;
+    toast(`统计数据加载失败：${st.error}`, false);
     return;
   }
-  renderDashAssets(st);
   renderDashActions(st);
   const rv = st.review;
   $("#dash-cards").innerHTML = `
