@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+projects/
+config.json
+审核报告/
+*.md
+.git/

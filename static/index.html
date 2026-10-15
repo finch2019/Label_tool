@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>通用数据解析标注平台</title>
+<link rel="stylesheet" href="style.css?v=27">
+</head>
+<body>
+
+<nav id="topnav">
+  <div class="brand">通用数据解析标注平台</div>
+  <div class="tabs">
+    <button data-view="dashboard" class="tab active">总览</button>
+    <button data-view="image" class="tab">图片</button>
+    <button data-view="text" class="tab">文本</button>
+  </div>
+  <div class="nav-right">
+    <select id="proj-select" class="proj-select" title="切换项目"></select>
+    <button class="btn" id="proj-new" title="新建项目">＋ 项目</button>
+    <button class="btn" id="proj-del" title="删除当前项目">🗑 删除</button>
+    <button class="btn user-badge" id="user-badge" title="点击修改昵称">👤 未设置</button>
+    <button class="btn primary" id="btn-data">⬆ 上传数据</button>
+    <span id="vlm-status" class="vlm-dot" title="VLM 状态">●</span>
+    <span id="vlm-text" class="vlm-text">VLM</span>
+  </div>
+</nav>
+
+<main>
+  <!-- ============ 总览 ============ -->
+  <section id="view-dashboard" class="view active">
+    <!-- 默认空状态：未上传数据时的引导页 -->
+    <div id="dash-empty" class="dash-empty">
+      <div class="dash-empty-icon">🗂️</div>
+      <h2>通用数据解析标注平台</h2>
+      <p class="dash-empty-desc">上传一个数据文件夹，平台将自动解析目录结构、识别图片 / 文本 / 标注文件，<br>随后即可在「图片」「文本」中使用 AI 助手开始标注。</p>
+      <div class="dash-empty-actions">
+        <button class="btn primary lg" id="btn-dash-upload">⬆ 上传数据</button>
+        <button class="btn lg" id="btn-dash-resume" style="display:none">📂 读取上次记录</button>
+      </div>
+      <p class="dash-resume-info" id="dash-resume-info" style="display:none"></p>
+      <div class="dash-empty-tips">
+        <span class="tip">📁 图片目录 → 自动生成分类树</span>
+        <span class="tip">📄 txt 文本 → 一键导入标注池</span>
+        <span class="tip">🧾 json / 框标注 → 自动识别加载</span>
+      </div>
+    </div>
+    <!-- 已上传数据：数据面板 -->
+    <div id="dash-content" style="display:none">
+      <!-- 工作流引导卡：按项目状态高亮下一步 -->
+      <div class="panel wf-card" id="wf-card" style="display:none"></div>
+      <div class="panel" id="probe-panel" style="display:none">
+        <h3>数据解析报告</h3>
+        <div id="probe-report"></div>
+      </div>
+      <div class="cards" id="dash-cards"></div>
+      <div class="dash-grid">
+        <div class="panel">
+          <h3>一级分类分布</h3>
+          <div id="dash-cats"></div>
+        </div>
+        <div class="panel">
+          <h3>VLM 审核结果分布</h3>
+          <div id="dash-vlm"></div>
+        </div>
+        <div class="panel">
+          <h3>最近复核</h3>
+          <div id="dash-recent"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 图片：左预览/标注 + 右 AI 助手 ============ -->
+  <section id="view-image" class="view">
+    <div class="line-layout">
+      <div class="line-main">
+        <!-- 模式切换：默认预览模式观察数据集 -->
+        <!-- 工具栏：第一行=模式与主操作，第二行=模式相关工具 -->
+        <div class="panel toolbar-stack">
+          <div class="toolbar-row">
+            <button class="btn sm mode-btn active" id="img-mode-label">🔍 预览模式</button>
+            <button class="btn sm mode-btn" id="img-mode-review">复核模式</button>
+            <span class="spacer"></span>
+            <button class="btn primary" id="btn-start-anno">✏ 开始标注</button>
+          </div>
+          <div class="toolbar-row">
+            <span id="img-mode-label-tools" class="mode-tools">
+              <label class="chk"><input type="checkbox" id="unlabeled-only"> 只看未标注</label>
+              <span class="batch-bar">
+                <button class="btn sm" id="btn-batch-vlm">🤖 批量预标注</button>
+                <button class="btn sm danger" id="batch-vlm-stop" style="display:none">⏹ 停止</button>
+                <button class="btn sm" id="btn-batch-clear" style="display:none">🗑 删除预标注</button>
+                <span id="batch-vlm-status" class="muted"></span>
+              </span>
+            </span>
+            <span id="img-mode-review-tools" class="mode-tools" style="display:none">
+              <select id="rv-filter-status">
+                <option value="pending">待复核</option>
+                <option value="reviewed">已复核</option>
+                <option value="all">全部</option>
+              </select>
+              <select id="rv-filter-result">
+                <option value="all">全部结果</option>
+                <option value="mismatch">VLM判不匹配</option>
+                <option value="error">调用错误</option>
+                <option value="low">低置信匹配</option>
+                <option value="match">正常匹配</option>
+              </select>
+              <input id="rv-search" type="text" placeholder="搜索标签/文件名…" style="width:150px">
+            </span>
+            <span class="spacer"></span>
+            <span class="dir-pos"><span id="cur-dir">未选择目录</span><span id="dir-stats" class="muted"></span></span>
+          </div>
+        </div>
+
+        <!-- 预览统计条：数据集概览 -->
+        <div class="panel preview-stats" id="preview-stats" style="display:none"></div>
+
+        <!-- 标注模式：树 + 网格 -->
+        <div id="img-pane-label" class="label-layout">
+          <aside class="panel label-side">
+            <h3>目录分类</h3>
+            <input id="tree-search" type="text" placeholder="过滤目录…">
+            <div id="label-tree" class="tree"></div>
+          </aside>
+          <div class="label-main">
+            <div class="review-flex">
+              <div id="img-grid" class="img-grid"></div>
+              <div class="load-more-wrap">
+                <button id="btn-more" class="btn" style="display:none">加载更多</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 复核模式：队列 + 详情 -->
+        <div id="img-pane-review" class="review-layout" style="display:none">
+          <aside class="review-side panel">
+            <div class="counts" id="rv-counts"></div>
+            <div id="rv-list" class="rv-list"></div>
+          </aside>
+          <div class="review-main">
+            <div id="rv-detail"><div class="rv-empty">左侧选择图片开始复核</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧 AI 助手 -->
+      <aside class="ai-panel panel" id="ai-panel-image">
+        <div class="ai-head">
+          <span class="ai-title">AI 助手 · 图片</span>
+          <button class="btn sm" id="ai-clear-image">清空</button>
+        </div>
+        <div class="ai-msgs" id="ai-msgs-image"></div>
+        <div class="ai-chips" id="ai-chips-image"></div>
+        <div class="ai-input-row">
+          <input id="ai-input-image" type="text" placeholder="向 AI 描述你想做的事…">
+          <button class="btn primary" id="ai-send-image">发送</button>
+        </div>
+      </aside>
+    </div>
+
+    <!-- 画框编辑器 弹层 -->
+    <div id="editor-modal" class="modal-mask" style="display:none">
+      <div class="modal-body">
+        <div class="modal-head">
+          <span id="ed-title"></span>
+          <span id="ed-by" class="muted" style="font-size:12px;margin-left:8px"></span>
+          <span class="spacer"></span>
+          <button class="btn" id="ed-prev">‹ 上一张</button>
+          <button class="btn" id="ed-next">下一张 ›</button>
+          <button class="btn danger" id="ed-close">关闭</button>
+        </div>
+        <div class="modal-toolbar">
+          <label>形状标签：</label>
+          <input id="ed-box-label" list="en-labels" placeholder="如 smoking">
+          <datalist id="en-labels"></datalist>
+          <button class="btn sm tool-btn active" id="ed-tool-box" title="拖动画框；单击框内部=选中（选中后可整体拖动）；在框内按下并拖动=穿透画新框；按 N 在光标处设锚点，再按下鼠标拖动即从锚点拉框">◻ 几何标注</button>
+          <button class="btn sm tool-btn" id="ed-tool-point" title="单击画布即添加一个点，可拖动微调">◉ 点标注</button>
+          <button class="btn sm tool-btn" id="ed-tool-line" title="两点画线：在图上点击定起点，移动鼠标实时预览直线，再点击一下定终点成线">╱ 线标注</button>
+          <button class="btn primary" id="ed-save-boxes">保存</button>
+          <span class="spacer"></span>
+          <button class="btn" id="ed-toggle-boxes">隐藏框</button>
+          <button class="btn" id="ed-reset">还原</button>
+          <span class="hint ed-hint-row" id="ed-tool-hint">拖动画框 · 单击框内选中（选中后整体拖动）· 拖角点调大小 · 双击框内改标签 · N 键锚定起点拉框（再按 N 取消）· Delete 删除 · 滚轮缩放</span>
+        </div>
+        <div class="ed-canvas-wrap" id="ed-canvas-wrap">
+          <canvas id="ed-canvas"></canvas>
+        </div>
+        <div class="modal-bottom">
+          <div class="mb-left">
+            <!-- 标签集：展示导入的标签，点击=切换当前标签；选中形状后点击=直接改该形状标签 -->
+            <div class="mb-row" id="ed-label-row">
+              <span class="mb-label">标签集：</span>
+              <div class="ed-label-wrap">
+                <div class="label-grid" id="ed-label-grid"></div>
+              </div>
+            </div>
+            <div class="mb-row" id="ed-box-list-row">
+              <span class="mb-label">已标注：</span>
+              <div id="ed-box-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 文本：左文本预览 + 右 AI 助手 ============ -->
+  <section id="view-text" class="view">
+    <div class="line-layout">
+      <div class="line-main">
+        <div class="panel toolbar-stack">
+          <div class="toolbar-row">
+            <button class="btn sm mode-btn active" id="txt-mode-src">数据目录</button>
+            <button class="btn sm mode-btn" id="txt-mode-pool">标注池</button>
+            <span class="spacer"></span>
+            <button class="btn primary" id="btn-start-anno-text">✏ 开始标注</button>
+          </div>
+          <div class="toolbar-row">
+            <span id="txt-src-tools" class="mode-tools">
+              <input id="txt-dir-filter" type="text" placeholder="目录筛选，如 辱骂" style="width:150px">
+              <button class="btn sm" id="btn-import-texts">导入到标注池</button>
+              <span id="txt-src-stats" class="muted"></span>
+            </span>
+            <span id="txt-pool-tools" class="mode-tools" style="display:none">
+              <button class="btn sm primary" id="tl-vlm">LLM 批量预标注</button>
+              <span id="tl-vlm-status" class="muted"></span>
+              <span class="spacer"></span>
+              <select id="tl-filter">
+                <option value="all">全部</option>
+                <option value="pending">未标注</option>
+                <option value="labeled">已预标注</option>
+                <option value="confirmed">已确认</option>
+              </select>
+              <input id="tl-search" type="text" placeholder="搜索…" style="width:110px">
+              <button class="btn sm" id="tl-export">导出结果</button>
+            </span>
+          </div>
+        </div>
+
+        <!-- 数据目录视图 -->
+        <div id="txt-pane-src" class="label-layout">
+          <aside class="panel label-side">
+            <h3>文本目录</h3>
+            <div id="txt-tree" class="tree"></div>
+          </aside>
+          <div class="label-main">
+            <div id="txt-lines" class="txt-lines"></div>
+          </div>
+        </div>
+
+        <!-- 标注池视图 -->
+        <div id="txt-pane-pool" style="display:none">
+          <div class="panel tl-input-panel">
+            <div class="tl-input-row">
+              <textarea id="tl-textarea" rows="2" placeholder="手动添加文本，每行一条…"></textarea>
+              <div class="tl-input-btns">
+                <button class="btn primary" id="tl-add">加入标注池</button>
+              </div>
+            </div>
+            <div id="tl-add-msg" class="muted"></div>
+          </div>
+          <div id="tl-list" class="tl-list"></div>
+        </div>
+      </div>
+
+      <!-- 右侧 AI 助手 -->
+      <aside class="ai-panel panel" id="ai-panel-text">
+        <div class="ai-head">
+          <span class="ai-title">AI 助手 · 文本</span>
+          <button class="btn sm" id="ai-clear-text">清空</button>
+        </div>
+        <div class="ai-msgs" id="ai-msgs-text"></div>
+        <div class="ai-chips" id="ai-chips-text"></div>
+        <div class="ai-input-row">
+          <input id="ai-input-text" type="text" placeholder="向 AI 描述你想做的事…">
+          <button class="btn primary" id="ai-send-text">发送</button>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============ 独立标注工作页（配置完成后进入，全屏） ============ -->
+  <section id="view-annotate" class="view">
+    <div class="anno-wrap">
+      <header class="anno-topbar panel">
+        <button class="btn" id="anno-exit">‹ 退出标注</button>
+        <span class="anno-task" id="anno-task"></span>
+        <span class="anno-progress" id="anno-progress"></span>
+        <span class="spacer"></span>
+        <button class="btn sm" id="anno-prev-group">‹ 上一组</button>
+        <span class="muted" id="anno-group-info"></span>
+        <button class="btn sm" id="anno-next-group">下一组 ›</button>
+        <button class="btn sm" id="anno-export">⬇ 导出</button>
+      </header>
+
+      <!-- 图片标注 -->
+      <div id="anno-pane-image" class="anno-body" style="display:none">
+        <div class="anno-main">
+          <div class="anno-canvas-wrap" id="anno-canvas-wrap">
+            <canvas id="anno-canvas"></canvas>
+          </div>
+        </div>
+        <aside class="anno-side panel">
+          <!-- 标签列表（分类/检测共用：分类=点选保存并下一张；检测=点选切换当前框标签） -->
+          <h3 id="anno-label-title">选择分类标签</h3>
+          <p class="muted" style="font-size:12px;margin:0 0 8px" id="anno-label-hint">点击标签即保存并跳到下一张（快捷键 1-9）</p>
+          <div class="label-edit-tools">
+            <button class="btn sm" id="anno-label-edit" title="拖动排序 / 双击重命名 / 删除标签">⚙ 编辑标签</button>
+            <span id="anno-label-bar" style="display:none">
+              <button class="btn primary sm" id="anno-label-save">✔ 确认覆盖</button>
+              <button class="btn sm" id="anno-label-cancel">取消</button>
+            </span>
+          </div>
+          <div id="anno-pre-hint" class="pre-hint" style="display:none"></div>
+          <div class="label-grid" id="anno-label-grid"></div>
+          <!-- 检测模式附加面板 -->
+          <div id="anno-detect-panel" style="display:none">
+            <h3>检测标注</h3>
+            <div class="mb-row">
+              <span class="mb-label">形状标签：</span>
+              <select id="anno-box-label"></select>
+            </div>
+            <div class="mb-row">
+              <span class="mb-label">工具：</span>
+              <button class="btn sm tool-btn active" id="anno-tool-box" title="拖动画框；单击框内部=选中（选中后可整体拖动）；在框内按下并拖动=穿透画新框；按 N 在光标处设锚点，再按下鼠标拖动即从锚点拉框">◻ 几何标注</button>
+              <button class="btn sm tool-btn" id="anno-tool-point" title="单击画布即添加一个点，可拖动微调">◉ 点标注</button>
+              <button class="btn sm tool-btn" id="anno-tool-line" title="两点画线：在图上点击定起点，移动鼠标实时预览直线，再点击一下定终点成线">╱ 线标注</button>
+            </div>
+            <p class="muted" style="font-size:12px" id="anno-tool-hint">拖动画框 · 单击框内选中（选中后整体拖动）· 拖角点调大小 · 双击框内改标签 · N 键锚定起点拉框（再按 N 取消）· Delete 删除 · 滚轮缩放</p>
+            <div id="anno-box-list"></div>
+            <button class="btn primary" id="anno-save-boxes" style="margin-top:10px">保存并下一张</button>
+          </div>
+          <div class="anno-nav">
+            <button class="btn" id="anno-prev">‹ 上一张</button>
+            <button class="btn" id="anno-next">保存并下一张 ›</button>
+          </div>
+          <div class="anno-meta muted" id="anno-meta"></div>
+        </aside>
+      </div>
+
+      <!-- 文本标注 -->
+      <div id="anno-pane-text" class="anno-body" style="display:none">
+        <div class="anno-main">
+          <div class="anno-text-card panel" id="anno-text-card"></div>
+        </div>
+        <aside class="anno-side panel">
+          <h3>选择分类标签</h3>
+          <p class="muted" style="font-size:12px;margin:0 0 8px">点击标签即保存并跳到下一条（快捷键 1-9）</p>
+          <div class="label-edit-tools">
+            <button class="btn sm" id="anno-tlabel-edit" title="拖动排序 / 双击重命名 / 删除标签">⚙ 编辑标签</button>
+            <span id="anno-tlabel-bar" style="display:none">
+              <button class="btn primary sm" id="anno-tlabel-save">✔ 确认覆盖</button>
+              <button class="btn sm" id="anno-tlabel-cancel">取消</button>
+            </span>
+          </div>
+          <div class="label-grid" id="anno-tlabel-grid"></div>
+          <div class="anno-nav">
+            <button class="btn" id="anno-tprev">‹ 上一条</button>
+            <button class="btn" id="anno-tnext">跳过 ›</button>
+          </div>
+          <div class="anno-meta muted" id="anno-tmeta"></div>
+        </aside>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ 标注配置弹窗 ============ -->
+<div id="anno-config-modal" class="modal-mask" style="display:none">
+  <div class="modal-body config-body">
+    <h3 style="margin-bottom:4px">标注配置</h3>
+    <p class="muted" style="margin-bottom:6px">确认后进入独立标注页面进行手工标注。</p>
+    <div class="form-row">
+      <label>标注类型</label>
+      <div id="cfg-task-type-row">
+        <label class="chk" style="width:auto"><input type="radio" name="cfg-task-type" value="classify" checked> 分类</label>
+        <label class="chk" style="width:auto;margin-left:14px"><input type="radio" name="cfg-task-type" value="detect"> 检测（画框）</label>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>标注格式</label>
+      <select id="cfg-format" style="width:220px">
+        <option value="txt">txt（item + 标签）</option>
+        <option value="csv">csv</option>
+        <option value="yolo">YOLO</option>
+        <option value="coco">COCO</option>
+      </select>
+      <span class="muted" style="font-size:12px">标注过程统一保存，格式在导出时生效</span>
+    </div>
+    <div class="form-row">
+      <label>起标点</label>
+      <input id="cfg-start" type="number" min="1" value="1" style="width:100px">
+      <span class="muted">从第几张/条开始（1 起）</span>
+    </div>
+    <div class="form-row">
+      <label>分组数量</label>
+      <input id="cfg-group" type="number" min="1" value="50" style="width:100px">
+      <span class="muted">每组标注的张数/条数</span>
+    </div>
+    <div class="form-row" style="align-items:flex-start">
+      <label>标签集</label>
+      <div style="flex:1">
+        <div id="cfg-label-list" class="label-edit-list"></div>
+        <div class="label-edit-add">
+          <input id="cfg-label-new" type="text" placeholder="输入新标签后回车添加；支持粘贴多行批量添加">
+          <button class="btn sm" id="cfg-label-add">添加</button>
+        </div>
+        <div class="form-actions" style="margin-top:8px">
+          <button class="btn sm" id="cfg-labels-en">填入预设敏感标签</button>
+          <button class="btn sm" id="cfg-labels-dirs">从数据目录生成</button>
+          <button class="btn sm danger" id="cfg-labels-clear">清空</button>
+          <span class="muted" id="cfg-labels-count"></span>
+        </div>
+        <p class="muted" style="font-size:12px;margin:6px 0 0">标签行可拖动排序（快捷键 1-9 按顺序对应）、双击重命名、× 删除</p>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" id="cfg-cancel">取消</button>
+      <button class="btn primary" id="cfg-go">进入标注页</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 批量预标注确认弹窗 ============ -->
+<div id="batch-vlm-modal" class="modal-mask" style="display:none">
+  <div class="modal-body config-body">
+    <h3 style="margin-bottom:4px">批量预标注</h3>
+    <p class="muted" style="margin-bottom:10px">AI 将自动为未标注图片生成分类建议，结果可在复核模式中确认。</p>
+    <div class="form-row">
+      <label>目标目录</label>
+      <span id="bvlm-dir" class="muted">—</span>
+    </div>
+    <div class="form-row">
+      <label>未标注数</label>
+      <span id="bvlm-pending">统计中…</span>
+    </div>
+    <div class="form-row">
+      <label>处理数量</label>
+      <select id="bvlm-limit" style="width:120px">
+        <option value="20">20 张</option>
+        <option value="50" selected>50 张</option>
+        <option value="100">100 张</option>
+        <option value="200">200 张</option>
+        <option value="99999999">全部</option>
+      </select>
+      <span class="muted" style="font-size:12px">运行中可随时停止，已完成的保留</span>
+    </div>
+    <div class="form-actions">
+      <button class="btn" id="bvlm-cancel">取消</button>
+      <button class="btn primary" id="bvlm-go">开始</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 删除预标注确认弹窗 ============ -->
+<div id="batch-clear-modal" class="modal-mask" style="display:none">
+  <div class="modal-body config-body">
+    <h3 style="margin-bottom:4px">删除预标注</h3>
+    <p class="muted" style="margin-bottom:10px">将删除 AI 批量生成的分类建议（status=待确认），手工标注与已复核结果不受影响。</p>
+    <div class="form-row">
+      <label>范围</label>
+      <select id="bclear-scope" style="width:220px">
+        <option value="dir">当前目录</option>
+        <option value="all">整个数据源</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>可删除</label>
+      <span id="bclear-count">统计中…</span>
+    </div>
+    <div class="form-actions">
+      <button class="btn" id="bclear-cancel">取消</button>
+      <button class="btn danger" id="bclear-go">删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 新建项目 ============ -->
+<div id="proj-modal" class="modal-mask" style="display:none">
+  <div class="modal-body config-body" style="width:min(520px,92vw)">
+    <h3>新建项目</h3>
+    <p class="muted" style="margin:6px 0 0">项目之间相互隔离：各自独立的数据源、标注记录与导出结果。</p>
+    <div class="form-row">
+      <label>项目名称 *</label>
+      <input id="inp-proj-name" type="text" placeholder="例如：广告图片标注">
+    </div>
+    <div class="form-row">
+      <label>数据文件夹</label>
+      <input id="inp-proj-folder" type="text" placeholder="可留空，创建后通过「上传数据」导入">
+      <button class="btn" data-browse="inp-proj-folder">浏览</button>
+    </div>
+    <div class="form-actions">
+      <button class="btn" id="proj-cancel">取消</button>
+      <button class="btn primary" id="proj-create">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 昵称身份（协作 P2） ============ -->
+<div id="user-modal" class="modal-mask" style="display:none">
+  <div class="modal-body config-body" style="width:min(420px,92vw)">
+    <h3>输入你的昵称</h3>
+    <p class="muted" style="margin:6px 0 0">昵称用于标注归属（同一昵称即同一身份，多设备可共用）。<br>未设置昵称时仅可浏览图片，标注 / 复核等操作需先设置昵称。</p>
+    <div class="form-row">
+      <label>昵称</label>
+      <input id="inp-user-name" type="text" maxlength="32" placeholder="例如：张三">
+    </div>
+    <div class="form-actions">
+      <button class="btn" id="user-cancel">暂不设置</button>
+      <button class="btn primary" id="user-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- VLM 模型设置 弹层（按昵称独立，默认兜底） -->
+<div id="vlm-modal" class="modal-mask" style="display:none">
+  <div class="modal-body config-body" style="width:min(460px,92vw)">
+    <div class="modal-head" style="margin-bottom:4px">
+      <h3>模型设置</h3>
+      <span class="spacer"></span>
+      <button class="btn" id="btn-vlm-close">✕ 关闭</button>
+    </div>
+    <p class="muted" style="margin:6px 0 0">配置用于 AI 预标注与 AI 助手的大模型服务（OpenAI 兼容接口）：<br>填写 API 地址 / 模型名称 / API Key 即可切换不同的大模型；按昵称独立保存，各字段留空则使用服务器默认配置。</p>
+    <div id="vlm-cfg-status" class="muted" style="font-size:12px;margin:8px 0 2px"></div>
+    <div class="form-row">
+      <label>API 地址</label>
+      <input id="inp-vlm-endpoint" type="text" placeholder="例如：http://127.0.0.1:8000/v1">
+    </div>
+    <div class="form-row">
+      <label>模型名称</label>
+      <input id="inp-vlm-model" type="text" list="vlm-model-list" placeholder="例如：qwen3-6-35b-a3b">
+      <button class="btn sm" id="btn-vlm-models" title="按当前 API 地址与 Key 从服务端拉取可用模型列表">📡 获取模型列表</button>
+    </div>
+    <datalist id="vlm-model-list"></datalist>
+    <p class="muted" id="vlm-models-msg" style="font-size:12px;margin:2px 0 0"></p>
+    <div class="form-row">
+      <label>API Key</label>
+      <input id="inp-vlm-key" type="password" placeholder="无需鉴权则留空">
+    </div>
+    <div class="form-actions">
+      <button class="btn" id="btn-vlm-reset">恢复默认</button>
+      <button class="btn primary" id="btn-vlm-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 数据导入（本地上传 / 服务器路径 + 探测报告） ============ -->
+<div id="import-screen" class="modal-mask" style="display:none">
+  <div class="modal-body import-body">
+    <div class="modal-head" style="margin-bottom:4px">
+      <h3>导入数据</h3>
+      <span class="spacer"></span>
+      <button class="btn" id="btn-import-cancel" style="display:none">关闭</button>
+    </div>
+    <p class="muted" style="margin-bottom:6px">从本机上传数据文件夹或 zip 压缩包，也可填写服务器磁盘路径；平台自动解析目录结构与标注格式。</p>
+    <div class="imp-tabs">
+      <button class="imp-tab active" data-imp-tab="upload">本地上传</button>
+      <button class="imp-tab" data-imp-tab="path">服务器路径</button>
+    </div>
+    <!-- tab 1：浏览器直传 -->
+    <div id="imp-upload">
+      <div class="upload-pick" id="upload-pick">
+        <button class="btn" id="btn-pick-folder">📁 选择文件夹</button>
+        <button class="btn" id="btn-pick-zip">🗜 选择 zip 压缩包</button>
+        <input id="inp-dir-files" type="file" webkitdirectory multiple style="display:none">
+        <input id="inp-zip-file" type="file" accept=".zip,application/zip" style="display:none">
+        <span class="muted">超大目录建议先压缩为 zip 再上传</span>
+      </div>
+      <div id="upload-form" style="display:none">
+        <div class="form-row">
+          <label>数据集名称</label>
+          <input id="inp-upload-name" type="text">
+        </div>
+        <div id="upload-summary" class="muted"></div>
+        <div class="form-actions">
+          <button class="btn primary" id="btn-upload-start">开始上传</button>
+          <button class="btn" id="btn-upload-reset">重新选择</button>
+          <span id="upload-msg"></span>
+        </div>
+      </div>
+      <div id="upload-progress" style="display:none">
+        <div class="prog-bar"><div id="prog-fill"></div></div>
+        <div class="prog-text"><span id="prog-label">准备上传…</span><span id="prog-pct">0%</span></div>
+        <div class="form-actions">
+          <button class="btn" id="btn-upload-cancel">取消上传</button>
+        </div>
+      </div>
+    </div>
+    <!-- tab 2：服务器磁盘路径 -->
+    <div id="imp-path" style="display:none">
+      <div class="form-row">
+        <label>数据文件夹 *</label>
+        <input id="inp-folder" type="text" placeholder="服务器路径，如 /data/datasets 或 F:\Sdznsh0410\源文件">
+        <button class="btn" data-browse="inp-folder">浏览</button>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" id="btn-load">解析文件夹</button>
+        <span id="load-msg"></span>
+      </div>
+    </div>
+    <div id="probe-box" style="display:none">
+      <h3 style="margin:10px 0 6px">解析报告</h3>
+      <div id="probe-report-import"></div>
+      <div class="form-actions">
+        <button class="btn primary" id="btn-probe-go" style="display:none">进入平台</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 目录浏览 ============ -->
+<div id="fs-modal" class="modal-mask" style="display:none">
+  <div class="modal-body fs-body">
+    <div class="modal-head">
+      <span id="fs-path">（选择磁盘）</span>
+      <span class="spacer"></span>
+      <button class="btn" id="fs-close">关闭</button>
+    </div>
+    <div class="fs-toolbar">
+      <button class="btn sm" id="fs-up">↑ 上级</button>
+      <span class="muted">点击目录进入，或选择当前目录</span>
+      <span class="spacer"></span>
+      <button class="btn primary sm" id="fs-pick" style="display:none">选择此目录</button>
+    </div>
+    <div id="fs-list" class="fs-list"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="app.js?v=47"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# Python 缓存
+__pycache__/
+*.pyc
+.venv/
+
+# 运行期生成的缓存与数据
+.thumbs/
+export/
+projects/
+box_annotations/
+
+# 本地运行状态（含密钥与本地路径，勿提交）
+config.json
+
+# 部署包
+*.zip

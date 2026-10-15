@@ -1,0 +1,20 @@
+services:
+  label-tool:
+    build: ./label_tool
+    image: label-tool:latest
+    container_name: label-tool
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      # 项目数据（project.json / annotations.json）—— 必须持久化
+      - ./data/projects:/app/projects
+      # 全局配置（活动项目、各用户 VLM 配置）与导出报告
+      - ./data:/app/data
+      # ★ 标注数据源目录：把服务器上存放图片/文本数据的目录挂进容器，
+      #   界面「上传数据」时浏览容器内路径（如 /datasets/xxx）。按实际位置修改：
+      - /home/data/datasets:/datasets
+    environment:
+      # VLM 默认配置（用户可在界面里按昵称覆盖）
+      PLANNER_MODEL_ENDPOINT: "http://58.251.255.50:8229/v1"
+      PLANNER_MODEL_NAME: "qwen3-6-35b-a3b"
