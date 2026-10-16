@@ -13,7 +13,7 @@ RUN pip install -r requirements.txt \
     && rm -rf /root/.cache/pip
 
 # 拷贝代码（projects/、config.json 已被 .dockerignore 排除，经挂载注入）
-COPY server.py image_audit.py ./
+COPY server.py image_audit.py label_descriptions.py ./
 COPY static ./static
 
 # 数据目录由应用启动时自建（projects/、/app/data），挂载持久化

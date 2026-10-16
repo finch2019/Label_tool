@@ -33,7 +33,6 @@ from urllib.parse import unquote
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
-sys.path.insert(0, str(ROOT_DIR))
 
 import requests
 from PIL import Image as PILImage
